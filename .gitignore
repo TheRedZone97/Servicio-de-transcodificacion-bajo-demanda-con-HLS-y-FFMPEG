@@ -1,0 +1,12 @@
+# Dependencias y entornos
+node_modules/
+venv/
+__pycache__/
+
+# Variables de entorno y credenciales
+.env
+*.log
+
+# Directorios temporales de Docker o sistema
+.DS_Store
+Thumbs.db
