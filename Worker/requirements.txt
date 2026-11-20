@@ -2,3 +2,4 @@ redis
 docker
 minio
 requests
+python-dotenv
