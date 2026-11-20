@@ -8,12 +8,14 @@ from urllib.parse import urlsplit
 from pathlib import Path
 import requests
 from tempfile import TemporaryDirectory
+import docker
 
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 QUEUE_NAME = os.getenv("REDIS_QUEUE", "transcode_jobs")
 MAX_DOWNLOAD_BYTES = 1_000_000_000
+FFMPEG_IMAGE = "local/ffmpeg-transcoder:dev"
 
 def validate_public_video_url(video_url: str) -> None:
     parsed_url = urlsplit(video_url)
@@ -73,6 +75,57 @@ def download_video(video_url: str, destination: Path) -> int:
 
     return downloaded_bytes
 
+def transcode_to_hls(working_dir: Path) -> Path:
+    output_dir = working_dir / "hls"
+    output_dir.mkdir()
+
+    docker_client = docker.from_env()
+    try:
+        docker_client.containers.run(
+            image=FFMPEG_IMAGE,
+            command=[
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostats",
+                "-y",
+                "-i",
+                "/work/source_video",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-f",
+                "hls",
+                "-hls_time",
+                "10",
+                "-hls_list_size",
+                "0",
+                "-hls_segment_filename",
+                "/work/hls/segment_%03d.ts",
+                "/work/hls/playlist.m3u8",
+            ],
+            volumes={
+                str(working_dir.resolve()): {
+                    "bind": "/work",
+                    "mode": "rw",
+                }
+            },
+            network_mode="none",
+            remove=True,
+        )
+    finally:
+        docker_client.close()
+
+    playlist_path = output_dir / "playlist.m3u8"
+    if not playlist_path.is_file():
+        raise RuntimeError("FFmpeg no generó la playlist HLS.")
+
+    return playlist_path
+
 
 def main():
     client = redis.Redis(
@@ -100,13 +153,22 @@ def main():
 
         try:
             with TemporaryDirectory() as temp_dir:
-                destination = Path(temp_dir) / "source_video"
+                working_dir = Path(temp_dir)
+                destination = working_dir / "source_video"
                 downloaded_bytes = download_video(
                     job["video_url"],
                     destination,
                 )
                 print(f"Descarga terminada: {downloaded_bytes} bytes.")
-        except (requests.RequestException, ValueError, OSError) as error:
+
+                playlist_path = transcode_to_hls(working_dir)
+                print(f"Playlist HLS generada: {playlist_path.name}")
+        except (requests.RequestException,
+            docker.errors.DockerException,
+            ValueError,
+            OSError,
+            RuntimeError,) as error:
+            
             client.hset(f"job:{job_id}", mapping={"status": "failed"})
             detail = (
                 type(error).__name__
