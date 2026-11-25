@@ -9,13 +9,23 @@ from pathlib import Path
 import requests
 from tempfile import TemporaryDirectory
 import docker
+from minio import Minio
+from minio.error import MinioException
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
+from dotenv import load_dotenv
 
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 QUEUE_NAME = os.getenv("REDIS_QUEUE", "transcode_jobs")
 MAX_DOWNLOAD_BYTES = 1_000_000_000
 FFMPEG_IMAGE = "local/ffmpeg-transcoder:dev"
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", "127.0.0.1:8333")
+S3_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
+S3_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+S3_BUCKET = os.getenv("S3_BUCKET", "hls-output")
 
 def validate_public_video_url(video_url: str) -> None:
     parsed_url = urlsplit(video_url)
@@ -126,6 +136,41 @@ def transcode_to_hls(working_dir: Path) -> Path:
 
     return playlist_path
 
+def upload_hls_to_storage(
+    s3_client: Minio,
+    hls_dir: Path,
+    job_id: str,
+) -> str:
+    playlist_path = hls_dir / "playlist.m3u8"
+    segment_paths = sorted(hls_dir.glob("segment_*.ts"))
+
+    if not playlist_path.is_file():
+        raise RuntimeError("No se encontró la playlist HLS.")
+    if not segment_paths:
+        raise RuntimeError("No se encontraron segmentos HLS.")
+
+    object_prefix = f"jobs/{job_id}/"
+
+    for segment_path in segment_paths:
+        s3_client.fput_object(
+            S3_BUCKET,
+            f"{object_prefix}{segment_path.name}",
+            str(segment_path),
+            content_type="video/mp2t",
+        )
+
+    s3_client.fput_object(
+        S3_BUCKET,
+        f"{object_prefix}{playlist_path.name}",
+        str(playlist_path),
+        content_type="application/vnd.apple.mpegurl",
+    )
+
+    return (
+        f"http://{S3_ENDPOINT}/{S3_BUCKET}/"
+        f"{object_prefix}{playlist_path.name}"
+    )
+
 
 def main():
     client = redis.Redis(
@@ -134,7 +179,22 @@ def main():
         decode_responses=True,
     )
     client.ping()
+    if not S3_ACCESS_KEY or not S3_SECRET_KEY:
+        raise RuntimeError(
+            "Configura AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY en .env."
+        )
+
+    s3_client = Minio(
+        S3_ENDPOINT,
+        access_key=S3_ACCESS_KEY,
+        secret_key=S3_SECRET_KEY,
+        secure=False,
+    )
+
+    if not s3_client.bucket_exists(S3_BUCKET):
+        raise RuntimeError(f"No existe el bucket S3: {S3_BUCKET}")
     print(f"Worker escuchando la cola {QUEUE_NAME}")
+
 
     while True:
         try:
@@ -163,8 +223,24 @@ def main():
 
                 playlist_path = transcode_to_hls(working_dir)
                 print(f"Playlist HLS generada: {playlist_path.name}")
+                playlist_url = upload_hls_to_storage(
+                    s3_client,
+                    playlist_path.parent,
+                    job_id,
+                )
+                print(f"Playlist HLS almacenada: {playlist_url}")
+            client.hset(
+                f"job:{job_id}",
+                mapping={
+                    "status": "completed",
+                    "progress": 100,
+                    "playlist_url": playlist_url,
+                },
+            )
         except (requests.RequestException,
             docker.errors.DockerException,
+            MinioException,
+            Urllib3HTTPError,
             ValueError,
             OSError,
             RuntimeError,) as error:
