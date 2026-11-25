@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transcodificar video</title>
+  <style>
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: #061426;
+    color: #dce7f5;
+    font-family: Arial, sans-serif;
+  }
+
+  .app-shell {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    padding: 26px 18px;
+    background: #08192d;
+    border-right: 1px solid #1b3048;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: inherit;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .brand-mark {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border-radius: 8px;
+    background: #53d9c8;
+    color: #06202c;
+  }
+
+  .sidebar-label {
+    margin: 38px 0 12px;
+    color: #8498b2;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+ .nav-link {
+  display: block;
+  padding: 11px 12px;
+  border-radius: 7px;
+  background: transparent;
+  color: #a9bad0;
+  font-size: 14px;
+  text-decoration: none;
+  text-align: left;
+}
+
+.nav-link.active,
+.nav-link:hover {
+  background: #12364a;
+  color: #62ddcf;
+}
+
+  .main-content {
+    min-width: 0;
+    padding: 38px;
+  }
+
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 26px;
+  }
+
+  .eyebrow {
+    margin: 0 0 8px;
+    color: #8ca1bb;
+    font-size: 13px;
+  }
+
+  .page-header h1 {
+    margin: 0;
+    font-size: 28px;
+  }
+
+  .page-header > div > p:last-child,
+  .manage-panel > p {
+    color: #93a6bd;
+    font-size: 14px;
+  }
+
+  .topbar-badge {
+    padding: 9px 14px;
+    border-radius: 7px;
+    background: #102844;
+    color: #b7c9dd;
+    font-size: 13px;
+  }
+
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+    gap: 20px;
+  }
+
+  .video-browser-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 20px;
+  align-items: start;
+}
+
+  .panel {
+    min-width: 0;
+    padding: 20px;
+    border: 1px solid #1b3048;
+    border-radius: 12px;
+    background: #0e223b;
+  }
+
+  .panel h2 {
+    margin: 0 0 16px;
+    font-size: 18px;
+  }
+
+  .preview-panel video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    margin: 16px 0;
+    border-radius: 8px;
+    background: #020914;
+    object-fit: contain;
+  }
+
+  .preview-panel label {
+    display: block;
+    margin-bottom: 8px;
+    color: #a9bad0;
+    font-size: 13px;
+  }
+
+  progress {
+    display: block;
+    width: 100%;
+    height: 12px;
+    accent-color: #53d9c8;
+  }
+
+  #result {
+    color: #a9bad0;
+    font-size: 13px;
+  }
+
+  form {
+    display: grid;
+    gap: 11px;
+    margin-top: 24px;
+  }
+
+  form label {
+    color: #a9bad0;
+    font-size: 13px;
+  }
+
+  form input {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #29415b;
+    border-radius: 6px;
+    background: #091a2e;
+    color: #e7eef8;
+    font: inherit;
+  }
+
+  form button {
+    padding: 12px;
+    border: 0;
+    border-radius: 6px;
+    background: #53d9c8;
+    color: #06202c;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  form button:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+
+  @media (max-width: 800px) {
+    .app-shell {
+      grid-template-columns: 1fr;
+    }
+    .video-browser-grid {
+  grid-template-columns: 1fr;
+}
+
+    .sidebar {
+      padding: 16px 20px;
+      border-right: 0;
+      border-bottom: 1px solid #1b3048;
+    }
+
+    .sidebar-label {
+      margin-top: 20px;
+    }
+
+    .main-content {
+      padding: 24px 20px;
+    }
+
+    .dashboard-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+    .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+
+  .main-content {
+    width: 100%;
+    max-width: 1500px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    align-items: flex-start;
+  }
+
+  .page-header h1 {
+    font-size: clamp(24px, 2.4vw, 32px);
+    letter-spacing: -0.5px;
+  }
+
+  .dashboard-grid {
+    align-items: start;
+  }
+
+  .panel {
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+  }
+
+  .topbar-badge {
+    border: 1px solid #203a56;
+  }
+
+  .preview-panel video {
+    max-height: 420px;
+  }
+
+  #result {
+    display: inline-block;
+    max-width: 100%;
+    margin: 14px 0 0;
+    padding: 10px 12px;
+    border: 1px solid #203a56;
+    border-radius: 7px;
+    background: #091a2e;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  #result:empty {
+    display: none;
+  }
+
+  form input:focus {
+    border-color: #53d9c8;
+    outline: 2px solid rgba(83, 217, 200, 0.18);
+  }
+
+  form button:hover:not(:disabled) {
+    background: #70e5d6;
+  }
+
+  @media (max-width: 800px) {
+    .sidebar {
+      position: static;
+      height: auto;
+    }
+  }
+    .recent-panel {
+    margin-top: 20px;
+    overflow: hidden;
+  }
+
+  .recent-heading {
+    margin-bottom: 14px;
+  }
+
+  .recent-heading h2 {
+    margin: 0 0 6px;
+  }
+
+  .recent-heading p {
+    margin: 0;
+    color: #93a6bd;
+    font-size: 13px;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+
+  .recent-jobs-table {
+    width: 100%;
+    min-width: 620px;
+    table-layout: fixed;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13px;
+  }
+
+  .recent-jobs-table th {
+    padding: 10px 12px;
+    border-bottom: 1px solid #203a56;
+    color: #8498b2;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .recent-jobs-table td {
+    padding: 12px;
+    border-bottom: 1px solid #1b3048;
+    color: #b8c8db;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  .recent-jobs-table th:first-child,
+  .recent-jobs-table td:first-child {
+    width: 55%;
+  }
+
+  .recent-jobs-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .recent-jobs-table tbody tr:hover {
+    background: #112a45;
+  }
+
+  .recent-jobs-table td[data-status="completed"] {
+    color: #65ddcf;
+    font-weight: 600;
+  }
+
+  .recent-jobs-table td[data-status="failed"] {
+    color: #f18a95;
+    font-weight: 600;
+  }
+
+  .recent-jobs-table td[data-status="processing"] {
+    color: #aab3ff;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+  <div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="/">
+      <span class="brand-mark">T</span>
+      <span>TranscoderHLS</span>
+    </a>
+
+    <p class="sidebar-label">PLATAFORMA</p>
+   <nav class="sidebar-nav">
+        <a class="nav-link active" href="#processing-view">Procesar video</a>
+         <a class="nav-link" href="#video-library">Videos</a>
+</nav>
+  </aside>
+
+  <main class="main-content">
+  <section id="processing-view">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Workspace / Video pipeline</p>
+        <h1>Centro de procesamiento</h1>
+        <p>Transcodifica tu video y revisa el resultado.</p>
+      </div>
+      <span class="topbar-badge">HLS</span>
+    </header>
+
+    <div class="dashboard-grid">
+      <section class="panel preview-panel">
+        <h2>Estado</h2>
+
+        <label for="progress-bar">Progreso de transcodificación</label>
+        <progress id="progress-bar" max="100" value="0"></progress>
+        <p id="result" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="panel manage-panel">
+        <h2>Gestionar videos</h2>
+        <p>Ingresa la URL del video para iniciar el procesamiento.</p>
+
+        <form id="transcode-form">
+          <label for="video-url">URL del video</label>
+          <input
+            id="video-url"
+            name="video_url"
+            type="url"
+            placeholder="https://ejemplo.com/video.mp4"
+            required
+          >
+          <button type="submit">Iniciar procesamiento</button>
+        </form>
+      </section>
+    </div>
+        <section class="panel recent-panel">
+      <div class="recent-heading">
+        <div>
+          <h2>Videos recientes</h2>
+          <p>Últimos 10 trabajos enviados</p>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table class="recent-jobs-table">
+          <thead>
+            <tr>
+              <th>Video / URL</th>
+              <th>Estado</th>
+              <th>Progreso</th>
+              <th>Fecha</th>
+            </tr>
+          </thead>
+          <tbody id="recent-jobs-body">
+            <tr>
+              <td colspan="4">Cargando historial...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    </section>
+
+    <section id="video-library" hidden>
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Workspace / Biblioteca</p>
+      <h1>Videos</h1>
+      <p>Selecciona un video para cargarlo en el reproductor.</p>
+    </div>
+    <span class="topbar-badge">HLS</span>
+  </header>
+
+  <div class="video-browser-grid">
+    <section class="panel preview-panel">
+      <h2>Reproductor</h2>
+      <video id="hls-player" controls playsinline></video>
+    </section>
+
+    <section class="panel video-library-panel">
+      <div class="recent-heading">
+        <div>
+          <h2>Biblioteca de videos</h2>
+          <p>Videos HLS disponibles para reproducir.</p>
+        </div>
+      </div>
+
+      <div id="video-library-list" class="video-library-list">
+        <p>Cargando biblioteca...</p>
+      </div>
+    </section>
+  </div>
+</section>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+
+<script>
+  const form = document.getElementById("transcode-form");
+  const input = document.getElementById("video-url");
+  const button = form.querySelector('button[type="submit"]');
+  const result = document.getElementById("result");
+  const progressBar = document.getElementById("progress-bar");
+  const player = document.getElementById("hls-player");
+  const recentJobsBody = document.getElementById("recent-jobs-body");
+  const videoLibraryList = document.getElementById("video-library-list");
+  const processingView = document.getElementById("processing-view");
+  const videoLibraryView = document.getElementById("video-library");
+  const navLinks = document.querySelectorAll(".nav-link");
+  let hlsInstance = null;
+
+  navLinks.forEach((link) => {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+
+    const showVideos = link.getAttribute("href") === "#video-library";
+    processingView.hidden = showVideos;
+    videoLibraryView.hidden = !showVideos;
+
+    navLinks.forEach((item) => {
+      const isActive = item === link;
+      item.classList.toggle("active", isActive);
+
+      if (isActive) {
+        item.setAttribute("aria-current", "page");
+      } else {
+        item.removeAttribute("aria-current");
+      }
+    });
+  });
+});
+
+  function loadHls(playlistUrl) {
+  if (hlsInstance) {
+    hlsInstance.destroy();
+    hlsInstance = null;
+  }
+
+  player.pause();
+  player.removeAttribute("src");
+  player.load();
+
+  if (player.canPlayType("application/vnd.apple.mpegurl")) {
+    player.src = playlistUrl;
+    return;
+  }
+
+  if (typeof Hls !== "undefined" && Hls.isSupported()) {
+    hlsInstance = new Hls();
+    hlsInstance.loadSource(playlistUrl);
+    hlsInstance.attachMedia(player);
+    return;
+  }
+
+  result.textContent = "Este navegador no admite reproducción HLS.";
+}
+function renderVideoLibrary(videos) {
+  videoLibraryList.replaceChildren();
+
+  if (videos.length === 0) {
+    videoLibraryList.textContent = "Todavía no hay videos HLS disponibles.";
+    return;
+  }
+
+  for (const video of videos) {
+    const item = document.createElement("div");
+    const title = document.createElement("p");
+    const playButton = document.createElement("button");
+
+    title.textContent = `Video ${video.job_id}`;
+    playButton.type = "button";
+    playButton.textContent = "Cargar para reproducir";
+    playButton.addEventListener("click", () => {
+      loadHls(video.playlist_url);
+      result.textContent = `Cargado: ${video.job_id}. Usa los controles del reproductor.`;
+    });
+
+    item.append(title, playButton);
+    videoLibraryList.appendChild(item);
+  }
+}
+
+async function loadStoredVideos() {
+  try {
+    const response = await fetch("/videos");
+    const videos = await response.json();
+
+    if (!response.ok) {
+      throw new Error(videos.detail || `Error HTTP ${response.status}`);
+    }
+
+    renderVideoLibrary(videos);
+  } catch (error) {
+    videoLibraryList.textContent =
+      `No se pudo cargar la biblioteca: ${error.message}`;
+    console.error(error);
+  }
+}
+
+  function renderRecentJobs(jobs) {
+  recentJobsBody.replaceChildren();
+
+  if (jobs.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 4;
+    cell.textContent = "Todavía no hay trabajos recientes.";
+    row.appendChild(cell);
+    recentJobsBody.appendChild(row);
+    return;
+  }
+
+  const statusLabels = {
+    queued: "En cola",
+    processing: "Procesando",
+    completed: "Completado / subido",
+    failed: "Fallido / incompleto",
+  };
+
+  for (const job of jobs) {
+    const row = document.createElement("tr");
+    const videoCell = document.createElement("td");
+    const statusCell = document.createElement("td");
+    const progressCell = document.createElement("td");
+    const dateCell = document.createElement("td");
+
+    videoCell.textContent = job.video_url;
+    videoCell.title = job.video_url;
+    statusCell.textContent = statusLabels[job.status] || job.status;
+    statusCell.dataset.status = job.status;
+    progressCell.textContent = `${job.progress}%`;
+    dateCell.textContent = new Date(job.created_at).toLocaleString("es");
+
+    row.append(videoCell, statusCell, progressCell, dateCell);
+    recentJobsBody.appendChild(row);
+  }
+}
+
+async function refreshRecentJobs() {
+  try {
+    const response = await fetch("/jobs");
+    const jobs = await response.json();
+
+    if (!response.ok) {
+      throw new Error(jobs.detail || `Error HTTP ${response.status}`);
+    }
+
+    renderRecentJobs(jobs);
+  } catch (error) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 4;
+    cell.textContent = `No se pudo cargar el historial: ${error.message}`;
+    row.appendChild(cell);
+    recentJobsBody.replaceChildren(row);
+    console.error(error);
+  }
+}
+
+  async function watchJob(jobId) {
+    while (true) {
+      const response = await fetch(`/jobs/${encodeURIComponent(jobId)}`);
+      const job = await response.json();
+
+      if (!response.ok) {
+        throw new Error(job.detail || `Error HTTP ${response.status}`);
+      }
+
+      result.textContent =
+        `Trabajo ${job.job_id}: ${job.status} (${job.progress}%)`;
+      progressBar.value = job.progress;
+      await refreshRecentJobs();
+
+      if (job.status === "completed") {
+        if (!job.playlist_url) {
+          throw new Error("El trabajo terminó sin una URL de playlist.");
+        }
+        loadHls(job.playlist_url);
+        await loadStoredVideos();
+        return;
+      }
+
+      if (job.status === "failed") {
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  refreshRecentJobs();
+  loadStoredVideos();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    result.textContent = "Enviando trabajo...";
+
+    try {
+      const response = await fetch("/transcode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_url: input.value.trim() })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        const detail = Array.isArray(data.detail)
+          ? data.detail.map((error) => error.msg).join(", ")
+          : data.detail;
+        throw new Error(detail || `Error HTTP ${response.status}`);
+      }
+
+      await watchJob(data.job_id);
+    } catch (error) {
+      result.textContent = `Error: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
