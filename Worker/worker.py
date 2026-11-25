@@ -13,6 +13,7 @@ from minio import Minio
 from minio.error import MinioException
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 from dotenv import load_dotenv
+from docker.types import LogConfig
 
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -85,13 +86,61 @@ def download_video(video_url: str, destination: Path) -> int:
 
     return downloaded_bytes
 
-def transcode_to_hls(working_dir: Path) -> Path:
-    output_dir = working_dir / "hls"
-    output_dir.mkdir()
-
+def get_video_duration(working_dir: Path) -> float:
     docker_client = docker.from_env()
     try:
-        docker_client.containers.run(
+        output = docker_client.containers.run(
+            log_config=LogConfig(type="json-file"),
+            image=FFMPEG_IMAGE,
+            command=[
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                "/work/source_video",
+            ],
+            volumes={
+                str(working_dir.resolve()): {
+                    "bind": "/work",
+                    "mode": "ro",
+                }
+            },
+            network_mode="none",
+            remove=True,
+        )
+    finally:
+        docker_client.close()
+
+    try:
+        duration_seconds = float(output.decode("utf-8").strip())
+    except (UnicodeDecodeError, ValueError) as error:
+        raise RuntimeError(
+            "FFprobe no pudo determinar la duración del video."
+        ) from error
+
+    if not duration_seconds > 0:
+        raise RuntimeError("La duración del video no es válida.")
+
+    return duration_seconds
+
+def transcode_to_hls(
+    working_dir: Path,
+    job_id: str,
+    redis_client: redis.Redis,
+) -> Path:
+    output_dir = working_dir / "hls"
+    output_dir.mkdir()
+    duration_seconds = get_video_duration(working_dir)
+
+    docker_client = docker.from_env()
+    container = None
+    last_progress = -1
+
+    try:
+        container = docker_client.containers.run(
             image=FFMPEG_IMAGE,
             command=[
                 "ffmpeg",
@@ -99,6 +148,10 @@ def transcode_to_hls(working_dir: Path) -> Path:
                 "-loglevel",
                 "error",
                 "-nostats",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "1",
                 "-y",
                 "-i",
                 "/work/source_video",
@@ -125,10 +178,45 @@ def transcode_to_hls(working_dir: Path) -> Path:
                 }
             },
             network_mode="none",
-            remove=True,
+            detach=True,
         )
+
+        for output in container.logs(stream=True, follow=True):
+            for line in output.decode("utf-8", errors="replace").splitlines():
+                if not line.startswith("out_time="):
+                    continue
+
+                timestamp = line.partition("=")[2]
+                try:
+                    hours, minutes, seconds = timestamp.split(":")
+                    elapsed_seconds = (
+                        int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                    )
+                except ValueError:
+                    continue
+
+                progress = max(
+                    0,
+                    min(99, int(elapsed_seconds / duration_seconds * 100)),
+                )
+                if progress > last_progress:
+                    redis_client.hset(
+                        f"job:{job_id}",
+                        mapping={"progress": progress},
+                    )
+                    last_progress = progress
+
+        result = container.wait()
+        if result.get("StatusCode") != 0:
+            raise RuntimeError(
+                f"FFmpeg terminó con código {result.get('StatusCode')}."
+            )
     finally:
-        docker_client.close()
+        try:
+            if container is not None:
+                container.remove(force=True)
+        finally:
+            docker_client.close()
 
     playlist_path = output_dir / "playlist.m3u8"
     if not playlist_path.is_file():
@@ -221,7 +309,7 @@ def main():
                 )
                 print(f"Descarga terminada: {downloaded_bytes} bytes.")
 
-                playlist_path = transcode_to_hls(working_dir)
+                playlist_path = transcode_to_hls(working_dir, job_id, client)
                 print(f"Playlist HLS generada: {playlist_path.name}")
                 playlist_url = upload_hls_to_storage(
                     s3_client,
