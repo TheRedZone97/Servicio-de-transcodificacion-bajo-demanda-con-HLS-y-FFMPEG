@@ -24,9 +24,11 @@ QUEUE_NAME = os.getenv("REDIS_QUEUE", "transcode_jobs")
 MAX_DOWNLOAD_BYTES = 1_000_000_000
 FFMPEG_IMAGE = "local/ffmpeg-transcoder:dev"
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "127.0.0.1:8333")
+S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL", f"http://{S3_ENDPOINT}")
 S3_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 S3_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 S3_BUCKET = os.getenv("S3_BUCKET", "hls-output")
+WORK_VOLUME = os.getenv("WORK_VOLUME", "transcoder_work")
 
 def validate_public_video_url(video_url: str) -> None:
     parsed_url = urlsplit(video_url)
@@ -100,12 +102,12 @@ def get_video_duration(working_dir: Path) -> float:
                 "format=duration",
                 "-of",
                 "default=noprint_wrappers=1:nokey=1",
-                "/work/source_video",
+                str(working_dir / "source_video")
             ],
             volumes={
-                str(working_dir.resolve()): {
-                    "bind": "/work",
-                    "mode": "ro",
+                WORK_VOLUME: {
+                    "bind": "/shared-work",
+                    "mode": "rw",
                 }
             },
             network_mode="none",
@@ -154,7 +156,7 @@ def transcode_to_hls(
                 "1",
                 "-y",
                 "-i",
-                "/work/source_video",
+                str(working_dir / "source_video"),
                 "-c:v",
                 "libx264",
                 "-pix_fmt",
@@ -168,12 +170,12 @@ def transcode_to_hls(
                 "-hls_list_size",
                 "0",
                 "-hls_segment_filename",
-                "/work/hls/segment_%03d.ts",
-                "/work/hls/playlist.m3u8",
+                str(output_dir / "segment_%03d.ts"),
+                str(output_dir / "playlist.m3u8"),
             ],
             volumes={
-                str(working_dir.resolve()): {
-                    "bind": "/work",
+                WORK_VOLUME: {
+                    "bind": "/shared-work",
                     "mode": "rw",
                 }
             },
@@ -255,7 +257,7 @@ def upload_hls_to_storage(
     )
 
     return (
-        f"http://{S3_ENDPOINT}/{S3_BUCKET}/"
+        f"{S3_PUBLIC_URL.rstrip('/')}/{S3_BUCKET}/"
         f"{object_prefix}{playlist_path.name}"
     )
 
@@ -300,7 +302,7 @@ def main():
         print(f"Trabajo recibido: {job_id}")
 
         try:
-            with TemporaryDirectory() as temp_dir:
+            with TemporaryDirectory(dir="/shared-work") as temp_dir:
                 working_dir = Path(temp_dir)
                 destination = working_dir / "source_video"
                 downloaded_bytes = download_video(

@@ -1,4 +1,48 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.API
+    container_name: vod_transcoder_api
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_QUEUE: transcode_jobs
+      S3_ENDPOINT: seaweedfs:8333
+      S3_PUBLIC_URL: http://localhost:8333
+      S3_BUCKET: ${S3_BUCKET:-hls-output}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Set AWS_ACCESS_KEY_ID in .env}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Set AWS_SECRET_ACCESS_KEY in .env}
+    depends_on:
+      - redis
+      - seaweedfs
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.Worker
+    container_name: vod_transcoder_worker
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_QUEUE: transcode_jobs
+      S3_ENDPOINT: seaweedfs:8333
+      S3_PUBLIC_URL: http://localhost:8333
+      S3_BUCKET: ${S3_BUCKET:-hls-output}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Set AWS_ACCESS_KEY_ID in .env}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Set AWS_SECRET_ACCESS_KEY in .env}
+      WORK_VOLUME: transcoder_work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - transcoder_work:/shared-work
+    depends_on:
+      - redis
+      - seaweedfs
+    restart: unless-stopped
+
   seaweedfs:
     image: chrislusf/seaweedfs:latest
     container_name: vod_transcoder_seaweedfs
@@ -16,8 +60,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: vod_transcoder_redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -25,3 +67,5 @@ services:
 volumes:
   redis_data:
   seaweedfs_data:
+  transcoder_work:
+    name: transcoder_work
